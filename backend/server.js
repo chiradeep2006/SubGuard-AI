@@ -40,10 +40,10 @@ app.use(express.json());
 // Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 500,
+  max: 1000,
   message: { error: 'Too many requests, please try again later.' }
 });
-app.use('/api/', limiter);
+app.use(limiter);
 
 // Root & Cloud Health Check
 app.get('/', (req, res) => {
@@ -56,11 +56,16 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', uptime: Math.round(process.uptime()), timestamp: new Date().toISOString() });
+  res.json({
+    status: 'healthy',
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString()
+  });
 });
 
-// Mount API routes
+// Mount API routes under BOTH /api and root / for universal compatibility with all clients
 app.use('/api', apiRoutes);
+app.use('/', apiRoutes);
 
 // Daily Cron Job: Check upcoming payments within 3 days and generate notifications
 cron.schedule('0 8 * * *', async () => {
@@ -96,9 +101,6 @@ cron.schedule('0 8 * * *', async () => {
   }
 });
 
-app.get('/health', (req, res) => res.json({ status: 'healthy', timestamp: new Date() }));
-
 app.listen(PORT, () => {
   console.log(`SubGuard AI Backend running on port ${PORT}`);
 });
-
