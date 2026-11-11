@@ -1,0 +1,14 @@
+merchant,amount,transaction_date,category
+Netflix,649,2026-01-14,Entertainment
+Netflix,649,2026-02-14,Entertainment
+Netflix,799,2026-03-14,Entertainment
+Spotify,179,2026-01-18,Entertainment
+Spotify,179,2026-02-18,Entertainment
+Spotify,179,2026-03-18,Entertainment
+Amazon Prime,1499,2025-08-12,Shopping
+GitHub Copilot,830,2026-01-20,Productivity
+GitHub Copilot,830,2026-02-20,Productivity
+GitHub Copilot,830,2026-03-20,Productivity
+Gym Membership,2200,2026-02-05,Health
+Gym Membership,2200,2026-03-05,Health
+
