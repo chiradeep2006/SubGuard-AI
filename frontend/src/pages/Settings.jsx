@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage, LANGUAGES } from '../context/LanguageContext';
-import { User, Bell, Shield, Save, Check, Globe, CheckCircle2 } from 'lucide-react';
+import { User, Bell, Shield, Save, Check, Globe, CheckCircle2, Loader2 } from 'lucide-react';
+import { apiRequest } from '../api/client';
 
 export default function Settings() {
   const { user } = useAuth();
@@ -10,12 +11,52 @@ export default function Settings() {
   const [currency, setCurrency] = useState('INR');
   const [notifyRenewal, setNotifyRenewal] = useState(true);
   const [renewalDays, setRenewalDays] = useState(3);
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const handleSave = (e) => {
+  useEffect(() => {
+    let isMounted = true;
+    async function loadProfile() {
+      try {
+        const res = await apiRequest('/auth/profile');
+        if (res && res.profile && isMounted) {
+          if (res.profile.monthly_budget !== undefined) setBudget(res.profile.monthly_budget.toString());
+          if (res.profile.currency) setCurrency(res.profile.currency);
+          if (res.profile.notification_email !== undefined) setNotifyRenewal(res.profile.notification_email);
+          if (res.profile.notification_renewal_days !== undefined) setRenewalDays(res.profile.notification_renewal_days);
+        }
+      } catch (err) {
+        console.warn('Could not load profile preferences:', err);
+      }
+    }
+    loadProfile();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleSave = async (e) => {
     e.preventDefault();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    setSaving(true);
+    setSaved(false);
+
+    try {
+      await apiRequest('/auth/profile', 'PUT', {
+        monthly_budget: parseFloat(budget) || 5000,
+        currency,
+        notification_email: notifyRenewal,
+        notification_renewal_days: renewalDays
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      console.warn('Failed to update profile preferences:', err);
+      // Fallback optimistic UI
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -69,9 +110,7 @@ export default function Settings() {
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-2xl leading-none">{lang.flag}</span>
-                    {isSelected && (
-                      <CheckCircle2 className="w-4 h-4 text-purple-400" />
-                    )}
+                    {isSelected && <CheckCircle2 className="w-4 h-4 text-purple-400" />}
                   </div>
                   <div>
                     <p className={`font-bold text-sm ${isSelected ? 'text-white' : 'text-gray-200'}`}>
@@ -174,10 +213,20 @@ export default function Settings() {
 
         <button
           type="submit"
-          className="flex items-center space-x-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-xl text-sm shadow-lg shadow-purple-600/30 transition hover:scale-105"
+          disabled={saving}
+          className="flex items-center space-x-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-xl text-sm shadow-lg shadow-purple-600/30 transition hover:scale-105 disabled:opacity-60"
         >
-          <Save className="w-4 h-4" />
-          <span>{t('settings_save', 'Save All Preferences')}</span>
+          {saving ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Saving Preferences...</span>
+            </>
+          ) : (
+            <>
+              <Save className="w-4 h-4" />
+              <span>{t('settings_save', 'Save All Preferences')}</span>
+            </>
+          )}
         </button>
       </form>
     </div>

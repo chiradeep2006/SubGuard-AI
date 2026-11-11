@@ -15,6 +15,8 @@ const subscriptionSchema = z.object({
   start_date: z.string().optional(),
   next_payment_date: z.string().optional(),
   status: z.enum(['active', 'paused', 'cancelled']).default('active'),
+  payment_method: z.string().optional().default('Credit Card'),
+  description: z.string().optional().default(''),
   is_unused: z.boolean().default(false)
 });
 

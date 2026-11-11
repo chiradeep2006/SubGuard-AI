@@ -141,6 +141,8 @@ export async function addSubscriptionToStore(subData, userId) {
     amount: parseFloat(subData.amount),
     currency: subData.currency || 'INR',
     billing_frequency: subData.billing_frequency || 'monthly',
+    payment_method: subData.payment_method || 'Credit Card',
+    description: subData.description || '',
     start_date: subData.start_date || new Date().toISOString().split('T')[0],
     next_payment_date:
       subData.next_payment_date ||

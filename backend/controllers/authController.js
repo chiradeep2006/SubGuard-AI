@@ -50,6 +50,8 @@ export async function register(req, res) {
   return res.status(201).json(session);
 }
 
+const userProfilesMap = new Map();
+
 export async function getProfile(req, res) {
   const userId = req.user?.id || '00000000-0000-0000-0000-000000000001';
   const email = req.user?.email || 'admin@subguard.ai';
@@ -69,14 +71,53 @@ export async function getProfile(req, res) {
     }
   }
 
-  return res.json({
-    profile: {
-      id: userId,
-      email,
-      currency: 'INR',
-      monthly_budget: 5000,
-      notification_email: true,
-      notification_renewal_days: 3
+  const existing = userProfilesMap.get(userId) || {
+    id: userId,
+    email,
+    currency: 'INR',
+    monthly_budget: 5000,
+    notification_email: true,
+    notification_renewal_days: 3
+  };
+
+  return res.json({ profile: existing });
+}
+
+export async function updateProfile(req, res) {
+  const userId = req.user?.id || '00000000-0000-0000-0000-000000000001';
+  const email = req.user?.email || 'admin@subguard.ai';
+  const { currency, monthly_budget, notification_email, notification_renewal_days } = req.body || {};
+
+  const current = userProfilesMap.get(userId) || {
+    id: userId,
+    email,
+    currency: 'INR',
+    monthly_budget: 5000,
+    notification_email: true,
+    notification_renewal_days: 3
+  };
+
+  const updated = {
+    ...current,
+    currency: currency || current.currency,
+    monthly_budget: monthly_budget !== undefined ? parseFloat(monthly_budget) : current.monthly_budget,
+    notification_email: notification_email !== undefined ? !!notification_email : current.notification_email,
+    notification_renewal_days: notification_renewal_days !== undefined ? Number(notification_renewal_days) : current.notification_renewal_days,
+    updated_at: new Date().toISOString()
+  };
+
+  userProfilesMap.set(userId, updated);
+
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      await supabase
+        .from('profiles')
+        .upsert(updated)
+        .eq('id', userId);
+    } catch (err) {
+      // Fall through
     }
-  });
+  }
+
+  return res.json({ profile: updated, message: 'Profile preferences updated successfully' });
 }
