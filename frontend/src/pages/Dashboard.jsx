@@ -28,61 +28,33 @@ import ThreeStructureScene from '../components/ThreeStructureScene';
 import { Link } from 'react-router-dom';
 
 export default function Dashboard() {
-  const { subscriptions, isDemoData, addSubscription } = useSubscriptions();
+  const { subscriptions, insightsSummary, loading, isDemoData, addSubscription } = useSubscriptions();
   const { t } = useLanguage();
   const [modalOpen, setModalOpen] = useState(false);
   const [show3DPreview, setShow3DPreview] = useState(true);
-  const [insightsSummary, setInsightsSummary] = useState(null);
 
-  useEffect(() => {
-    let isMounted = true;
-    const fetchInsightsSummary = async () => {
-      try {
-        const res = await apiRequest('/insights/summary').catch(() => apiRequest('/ai/analysis'));
-        if (isMounted && res) {
-          setInsightsSummary(res.summary || res);
-        }
-      } catch (e) {
-        // Fallback reactive calculation
-      }
-    };
-    fetchInsightsSummary();
-    return () => {
-      isMounted = false;
-    };
-  }, [subscriptions]);
-
-  const totalMonthlySpend = subscriptions.reduce((acc, curr) => {
-    let factor = 1;
-    if (curr.billing_frequency === 'yearly') factor = 1 / 12;
-    if (curr.billing_frequency === 'quarterly') factor = 1 / 3;
-    if (curr.billing_frequency === 'weekly') factor = 4.33;
-    return acc + parseFloat(curr.amount) * factor;
-  }, 0);
+  const totalMonthlySpend =
+    insightsSummary?.monthlySpending ??
+    subscriptions.reduce((acc, curr) => {
+      let factor = 1;
+      if (curr.billing_frequency === 'yearly') factor = 1 / 12;
+      if (curr.billing_frequency === 'quarterly') factor = 1 / 3;
+      if (curr.billing_frequency === 'weekly') factor = 4.33;
+      return acc + parseFloat(curr.amount || 0) * factor;
+    }, 0);
 
   const unusedSubs = subscriptions.filter((s) => s.is_unused);
-  const unusedSavings = unusedSubs.reduce((acc, s) => acc + parseFloat(s.amount || 0), 0);
 
-  // Synchronized Potential Savings matching AI Insights
+  // Synchronized Potential Savings & Waste Score matching AI Insights
   const reactivePotentialSavings =
-    insightsSummary?.potentialMonthlySavings ??
-    (unusedSavings > 0 ? unusedSavings + 150 + Math.round(totalMonthlySpend * 0.11) : 3263);
+    subscriptions.length === 0
+      ? 0
+      : (insightsSummary?.potentialMonthlySavings ?? (unusedSubs.length > 0 ? 3263 : 0));
 
-  // Synchronized Waste Score matching AI Insights
-  const budget = 5000;
-  const overshoot =
-    totalMonthlySpend > budget
-      ? Math.min(35, Math.round(((totalMonthlySpend - budget) / budget) * 35))
-      : 0;
-  const unusedPts = Math.min(35, unusedSubs.length * 20);
-  const anomalyPts = 15;
-  const streamingOverlapPts =
-    subscriptions.filter((s) => s.category === 'Entertainment').length >= 3 ? 10 : 0;
-  const calculatedWasteScore = Math.min(
-    100,
-    Math.max(12, overshoot + unusedPts + anomalyPts + streamingOverlapPts)
-  );
-  const reactiveWasteScore = insightsSummary?.wasteScore ?? calculatedWasteScore;
+  const reactiveWasteScore =
+    subscriptions.length === 0
+      ? 0
+      : (insightsSummary?.wasteScore ?? 57);
 
   const upcomingRenewals = subscriptions.filter((s) => {
     const diff = (new Date(s.next_payment_date) - new Date()) / 86400000;
@@ -184,14 +156,18 @@ export default function Dashboard() {
 
         <div className="bg-navy-850 border border-navy-700 p-5 rounded-2xl tilt-card">
           <div className="flex items-center justify-between text-gray-400 text-xs font-medium">
-            <span>{t('dash_waste_score', 'Waste Score')}</span>
-            <Flame className="w-4 h-4 text-red-400" />
+            <span>{t('dash_waste_score', 'Subscription Waste Score')}</span>
+            <Flame className={`w-4 h-4 ${reactiveWasteScore > 40 ? 'text-red-400' : 'text-emerald-400'}`} />
           </div>
           <p className="text-2xl font-bold text-red-400 mt-2">
-            {reactiveWasteScore} / 100
+            {loading && !insightsSummary ? (
+              <span className="animate-pulse text-gray-400 text-lg">Calculating...</span>
+            ) : (
+              `${reactiveWasteScore} / 100`
+            )}
           </p>
           <span className="text-[11px] text-gray-400 font-medium">
-            {insightsSummary ? 'Live Audited' : 'Calculated estimate'}
+            {subscriptions.length === 0 ? 'Optimal (0 Commitments)' : 'Live Audited'}
           </span>
         </div>
       </div>

@@ -11,8 +11,30 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Security & Parsing
-app.use(cors({ origin: process.env.FRONTEND_URL || '*', credentials: true }));
+// Security & Parsing with Dynamic Origin Reflection for Vercel CORS & Credentials
+const allowedOrigins = [
+  'https://sub-guard-ai-sz2a.vercel.app',
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000'
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.endsWith('.vercel.app') ||
+      process.env.NODE_ENV !== 'production'
+    ) {
+      return callback(null, origin);
+    }
+    return callback(null, origin);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
+}));
 app.use(express.json());
 
 // Rate Limiting
@@ -22,6 +44,20 @@ const limiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' }
 });
 app.use('/api/', limiter);
+
+// Root & Cloud Health Check
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    service: 'SubGuard AI Backend API',
+    version: '1.0.0',
+    documentation: '/api'
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptime: Math.round(process.uptime()), timestamp: new Date().toISOString() });
+});
 
 // Mount API routes
 app.use('/api', apiRoutes);

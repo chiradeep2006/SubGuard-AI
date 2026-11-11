@@ -119,9 +119,9 @@ Provide up to 3 high-impact recommendations and 3 crisp savings tips.`;
     const callPromise = (async () => {
       const candidateModels = [
         model,
-        'gemini-flash-latest',
-        'gemini-flash-lite-latest',
-        'gemini-3.5-flash'
+        'gemini-3-flash-preview',
+        'gemini-3.5-flash',
+        'gemini-flash-latest'
       ];
       const uniqueModels = [...new Set(candidateModels.filter(Boolean))];
 

@@ -367,10 +367,12 @@ RULES:
         contents.push({ role: currentRole, parts: [{ text: currentText }] });
       }
 
-      // Robust cascade across available Gemini models with per-call timeout protection
+      // Robust cascade prioritizing verified active Google Gemini models
       const candidateModels = [
-        process.env.GEMINI_MODEL || 'gemini-flash-latest',
-        'gemini-flash-lite-latest'
+        process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
+        'gemini-3-flash-preview',
+        'gemini-3.5-flash',
+        'gemini-flash-latest'
       ];
       const uniqueModels = [...new Set(candidateModels.filter(Boolean))];
 
@@ -537,7 +539,7 @@ function generateSafeFallbackResponse(query, subs, total, anomalies) {
  */
 export async function checkGeminiHealth() {
   const isConfigured = isGeminiConfigured();
-  const primaryModel = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+  const primaryModel = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
 
   if (!isConfigured) {
     return {
@@ -562,10 +564,9 @@ export async function checkGeminiHealth() {
 
   const candidateModels = [
     primaryModel,
-    'gemini-flash-latest',
-    'gemini-flash-lite-latest',
+    'gemini-3-flash-preview',
     'gemini-3.5-flash',
-    'gemini-3-flash-preview'
+    'gemini-flash-latest'
   ];
   const uniqueModels = [...new Set(candidateModels.filter(Boolean))];
 

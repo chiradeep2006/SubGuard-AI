@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const apiKey = process.env.GEMINI_API_KEY || '';
-export const configuredModel = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+export const configuredModel = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
 
 export function isGeminiConfigured() {
   return Boolean(

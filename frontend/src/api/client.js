@@ -1,4 +1,7 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const DEFAULT_PROD_API = 'https://subguard-ai-4ol6.onrender.com/api';
+const isBrowserProd = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+const RAW_URL = import.meta.env.VITE_API_URL || (isBrowserProd ? DEFAULT_PROD_API : 'http://localhost:5000/api');
+const BASE_URL = RAW_URL.replace(/\/+$/, '');
 
 export async function apiRequest(endpoint, method = 'GET', body = null) {
   let token =
@@ -9,8 +12,10 @@ export async function apiRequest(endpoint, method = 'GET', body = null) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
+  const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
   try {
-    const res = await fetch(`${BASE_URL}${endpoint}`, {
+    const res = await fetch(`${BASE_URL}${cleanPath}`, {
       method,
       headers,
       body: body ? JSON.stringify(body) : null

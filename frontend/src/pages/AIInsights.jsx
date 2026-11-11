@@ -13,9 +13,11 @@ import {
 } from 'lucide-react';
 import { apiRequest } from '../api/client';
 import { useLanguage } from '../context/LanguageContext';
+import { useSubscriptions } from '../context/SubscriptionContext';
 
 export default function AIInsights() {
   const { t } = useLanguage();
+  const { subscriptions, insightsSummary, refresh: refreshStore } = useSubscriptions();
 
   // Distinct, independent loading states for zero UI blocking
   const [summaryLoading, setSummaryLoading] = useState(true);
@@ -79,6 +81,19 @@ export default function AIInsights() {
   ]);
 
   const [aiSource, setAiSource] = useState('smart_engine');
+
+  // Synchronize directly from unified SubscriptionContext
+  useEffect(() => {
+    if (insightsSummary) {
+      setSummary((prev) => ({
+        ...prev,
+        ...insightsSummary,
+        potentialMonthlySavings: insightsSummary.potentialMonthlySavings ?? prev.potentialMonthlySavings,
+        potentialYearlySavings: insightsSummary.potentialYearlySavings ?? prev.potentialYearlySavings
+      }));
+      setSummaryLoading(false);
+    }
+  }, [insightsSummary]);
 
   // 1. Fetch Summary & Anomalies immediately (sub-50ms)
   const fetchSummaryAndAnomalies = useCallback(async (isRefresh = false) => {

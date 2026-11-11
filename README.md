@@ -43,6 +43,92 @@ Open **`http://localhost:5173`** in your browser.
 
 ---
 
+## 🌐 Public Production Deployment Guide
+
+SubGuard AI is a full-stack application featuring a React 3D SPA frontend and a secure Node.js backend. 
+
+> **Important Note on GitHub "Visit Site":**  
+> GitHub Pages by default only serves static files or repository `README.md` files from the root. It cannot execute Node.js backends or securely store secret keys like `GEMINI_API_KEY`.  
+> For production, the industry standard is to deploy the **Backend on Render** and the **Frontend on Vercel**.
+
+```
+                ┌───────────────────────────────────┐
+                │        Client Browser             │
+                └─────────────────┬─────────────────┘
+                                  │
+                                  ▼
+                ┌───────────────────────────────────┐
+                │    Vercel (React 18 / Vite SPA)   │
+                │     https://your-app.vercel.app   │
+                └─────────────────┬─────────────────┘
+                                  │ HTTPS API calls
+                                  ▼
+                ┌───────────────────────────────────┐
+                │    Render (Node.js / Express API) │
+                │   https://your-api.onrender.com   │
+                └─────────────────┬─────────────────┘
+                                  │
+                   ┌──────────────┴──────────────┐
+                   ▼                             ▼
+        ┌─────────────────────┐       ┌──────────────────────┐
+        │  Google Gemini API  │       │  PayPal Sandbox API  │
+        └─────────────────────┘       └──────────────────────┘
+```
+
+---
+
+### Step 1: Deploy Backend on Render (Free Web Service)
+
+1. Sign in to [Render.com](https://render.com) with your GitHub account.
+2. Click **New +** > **Web Service**.
+3. Select your **SubGuard AI** GitHub repository.
+4. Configure the settings:
+   - **Name:** `subguard-backend` (or your choice)
+   - **Root Directory:** `backend`
+   - **Environment:** `Node`
+   - **Build Command:** `npm install`
+   - **Start Command:** `node server.js`
+   - **Plan:** Free
+5. Click **Advanced** > **Add Environment Variable** and add:
+   - `NODE_ENV` = `production`
+   - `GEMINI_MODEL` = `gemini-flash-latest`
+   - `GEMINI_API_KEY` = `<your-google-gemini-api-key>`
+   - `FRONTEND_URL` = `https://your-app.vercel.app` *(update once Vercel is deployed, or use `*` initially)*
+   - `PAYPAL_API_BASE` = `https://api-m.sandbox.paypal.com`
+6. Click **Deploy Web Service**.
+7. Once deployed, copy your Render backend URL:  
+   `https://subguard-backend.onrender.com`
+
+---
+
+### Step 2: Deploy Frontend on Vercel (Free Global CDN)
+
+1. Sign in to [Vercel.com](https://vercel.com) with your GitHub account.
+2. Click **Add New...** > **Project**.
+3. Import your **SubGuard AI** repository.
+4. In the configuration screen:
+   - **Framework Preset:** `Vite`
+   - **Root Directory:** Click **Edit** and choose `frontend`
+   - **Build Command:** `npm run build`
+   - **Output Directory:** `dist`
+5. Expand **Environment Variables** and add:
+   - `VITE_API_URL` = `https://subguard-backend.onrender.com/api` *(your Render backend URL + `/api`)*
+6. Click **Deploy**.
+7. In ~45 seconds, your site will be live at:  
+   `https://subguard-ai.vercel.app`
+
+---
+
+### Step 3: Link Vercel URL in GitHub Repository
+
+1. On your GitHub repository homepage, click the **⚙️ Settings** icon in the right sidebar (under "About").
+2. Check the box for **Use your deployment**.
+3. In the **Website** field, paste your Vercel public URL:  
+   `https://subguard-ai.vercel.app`
+4. Now when anyone clicks **"Visit site"** on GitHub, it opens your public application!
+
+---
+
 ## 🧪 Verification Against Test Scenarios
 
 1. **Scenario 1 (Add ₹649 Netflix Subscription):** Click **"Add Subscription"** on Dashboard or My Subscriptions. Monthly run-rate adjusts dynamically.
