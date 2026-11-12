@@ -121,7 +121,7 @@ export default function LandingPage() {
               </div>
               <div className="flex items-center space-x-1.5">
                 <CheckCircle2 className="w-4 h-4 text-purple-400" />
-                <span>{t('badge_gemini', 'Interactive Gemini AI Chatbot')}</span>
+                <span>{t('badge_ai_assistant', 'Interactive OpenAI Chatbot')}</span>
               </div>
               <div className="flex items-center space-x-1.5">
                 <CheckCircle2 className="w-4 h-4 text-blue-400" />

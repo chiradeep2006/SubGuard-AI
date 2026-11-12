@@ -1,6 +1,27 @@
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import {
+  askAssistant as askOpenAIAssistant,
+  checkOpenAIHealth,
+  extractChatIntent as extractOpenAIChatIntent,
+  generateFinancialAnalysis as generateOpenAIFinancialAnalysis
+} from './openaiService.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config();
+
+const MAX_RETRIES = 2;
+const INITIAL_BACKOFF_MS = 1000;
+
+/**
+ * Get dynamic timeout setting from environment (default: 30000ms / 30 seconds)
+ */
+export function getGeminiTimeoutMs() {
+  return parseInt(process.env.GEMINI_TIMEOUT_MS || '30000', 10);
+}
 
 /**
  * Check if a valid Gemini API key is configured
@@ -21,6 +42,135 @@ export function isGeminiConfigured() {
 export function getGeminiClient() {
   if (!isGeminiConfigured()) return null;
   return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY.trim() });
+}
+
+/**
+ * Determine if an error is non-retryable (invalid auth, bad request, unsupported model)
+ */
+function isNonRetryableError(err) {
+  if (!err) return false;
+  const status = err.status || err.statusCode || (err.response && err.response.status);
+  const msg = (err.message || '').toLowerCase();
+
+  // 400 Invalid argument, 401 Unauthorized, 403 Forbidden
+  if (status === 400 || status === 401 || status === 403) return true;
+  if (
+    msg.includes('api_key_invalid') ||
+    msg.includes('api key not valid') ||
+    msg.includes('permission_denied') ||
+    msg.includes('unauthenticated') ||
+    msg.includes('invalid_argument')
+  ) {
+    return true;
+  }
+  // Model not found (404)
+  if (status === 404 || msg.includes('not found') || msg.includes('is not supported')) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Calculate backoff delay in ms respecting retry-after headers
+ */
+function getRetryAfterMs(err, attempt) {
+  let retryAfter = null;
+  if (err?.response?.headers?.get) {
+    retryAfter = err.response.headers.get('retry-after');
+  } else if (err?.headers && err.headers['retry-after']) {
+    retryAfter = err.headers['retry-after'];
+  }
+
+  if (retryAfter) {
+    const parsed = parseInt(retryAfter, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      return Math.min(parsed * 1000, 5000);
+    }
+  }
+
+  // Exponential backoff: 1s, 2s with jitter (max 5s)
+  const base = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+  const jitter = Math.floor(Math.random() * 200);
+  return Math.min(base + jitter, 5000);
+}
+
+/**
+ * Invoke Gemini generateContent with configurable timeout, limited retries, and safe logging
+ */
+async function invokeGeminiWithRetry(client, model, contents, systemInstruction, timeoutMs) {
+  let attempt = 0;
+  const startTime = Date.now();
+
+  while (attempt <= MAX_RETRIES) {
+    attempt++;
+    const attemptStart = Date.now();
+    const elapsed = Date.now() - startTime;
+    const remainingBudget = timeoutMs - elapsed;
+
+    if (remainingBudget <= 500) {
+      console.warn(`[Gemini] Timeout budget reached before attempt ${attempt} (${elapsed}ms elapsed)`);
+      throw new Error(`Timeout: Model [${model}] call exceeded ${timeoutMs}ms`);
+    }
+
+    let timeoutId;
+    try {
+      const apiCallPromise = client.models.generateContent({
+        model,
+        contents,
+        config: {
+          systemInstruction,
+          temperature: 0.7
+        }
+      });
+
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`Timeout: Model [${model}] call exceeded ${timeoutMs}ms`));
+        }, remainingBudget);
+      });
+
+      const response = await Promise.race([apiCallPromise, timeoutPromise]);
+      clearTimeout(timeoutId);
+
+      const durationMs = Date.now() - attemptStart;
+      console.log(`[Gemini] Model: ${model} | Timeout: ${timeoutMs}ms | Status: SUCCESS | Attempt: ${attempt} | Duration: ${durationMs}ms`);
+
+      if (response && response.text) {
+        return {
+          reply: response.text.trim(),
+          source: 'gemini',
+          model
+        };
+      }
+      throw new Error('Empty response from Gemini API');
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const durationMs = Date.now() - attemptStart;
+      const isTimeout = (err.message || '').includes('Timeout');
+
+      console.warn(
+        `[Gemini] Model: ${model} | Timeout: ${timeoutMs}ms | Status: ${isTimeout ? 'TIMEOUT' : 'ERROR'} | Attempt: ${attempt}/${MAX_RETRIES + 1} | Duration: ${durationMs}ms | Reason: ${err.message}`
+      );
+
+      // Never retry on invalid API keys or invalid model configs
+      if (isNonRetryableError(err)) {
+        console.warn(`[Gemini] Non-retryable error encountered for model ${model}. Halting retries.`);
+        throw err;
+      }
+
+      // If timed out or attempts exhausted, throw
+      if (isTimeout || attempt > MAX_RETRIES) {
+        throw err;
+      }
+
+      // Exponential backoff delay
+      const waitMs = getRetryAfterMs(err, attempt - 1);
+      if (Date.now() - startTime + waitMs >= timeoutMs) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
 }
 
 /**
@@ -104,7 +254,6 @@ export function extractChatIntent(userQuestion, subscriptions) {
   const lower = q.toLowerCase();
 
   // 1. ADD INTENT
-  // Examples: "Add Netflix for ₹1000", "I want to add Netflix 1000", "Subscribe to Spotify for ₹179"
   const isAdd =
     lower.startsWith('add ') ||
     lower.includes('want to add ') ||
@@ -128,56 +277,42 @@ export function extractChatIntent(userQuestion, subscriptions) {
       .replace(/new subscription/i, '')
       .replace(/create subscription/i, '')
       .replace(/subscription/i, '')
-      .replace(/for/i, '')
-      .replace(/monthly|yearly|annual|weekly|quarterly/gi, '')
-      .replace(/(?:₹|\$|rs\.?|inr)?\s*\d+(?:\.\d{1,2})?/gi, '')
-      .replace(/[.,!?:;]/g, '')
+      .replace(/for\s+(?:₹|\$|rs\.?|inr)?\s*\d+(?:\.\d{1,2})?/i, '')
+      .replace(/(?:₹|\$|rs\.?|inr)?\s*\d+(?:\.\d{1,2})?/i, '')
+      .replace(/\b(monthly|yearly|annual|quarterly|weekly)\b/gi, '')
+      .replace(/\b(plan|tier|service)\b/gi, '')
       .trim();
 
-    if (merchant) {
-      merchant = merchant
-        .split(' ')
-        .filter(Boolean)
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-        .join(' ');
-    }
-
-    if (merchant && amount && amount > 0) {
-      const category = inferCategory(merchant);
+    if (!merchant && amount) merchant = 'Custom Subscription';
+    if (merchant && amount) {
       return {
         intent: 'ADD_SUBSCRIPTION',
         data: {
           merchant_name: merchant,
           amount,
           billing_frequency: frequency,
-          category
+          category: inferCategory(merchant),
+          status: 'active'
         }
       };
     }
   }
 
   // 2. UPDATE INTENT
-  // Examples: "Change Netflix subscription from ₹649 to ₹1000", "Change Netflix price to 1200", "Update Spotify price to ₹199"
   const isUpdate =
     lower.includes('change ') ||
     lower.includes('update ') ||
     lower.includes('modify ') ||
-    lower.includes('price to ') ||
-    lower.includes('to 1200') ||
-    lower.includes('to 1000');
+    lower.includes('set price ') ||
+    lower.includes('new price ');
 
-  if (isUpdate && !isAdd) {
-    const toMatch = q.match(/to\s*(?:₹|\$|rs\.?|inr)?\s*(\d+(?:\.\d{1,2})?)/i);
-    const anyNumberMatch = q.match(/(?:₹|\$|rs\.?|inr)?\s*(\d+(?:\.\d{1,2})?)$/i);
-    const newAmount = toMatch
-      ? parseFloat(toMatch[1])
-      : anyNumberMatch
-      ? parseFloat(anyNumberMatch[1])
-      : null;
-
+  if (isUpdate) {
     const matchedSub = findMatchingSubscription(lower, subscriptions);
+    const amountMatch = q.match(/(?:to|price to|for|is)\s*(?:₹|\$|rs\.?|inr)?\s*(\d+(?:\.\d{1,2})?)/i) ||
+      q.match(/(?:₹|\$|rs\.?|inr)?\s*(\d+(?:\.\d{1,2})?)/i);
 
-    if (matchedSub && newAmount && newAmount > 0) {
+    if (matchedSub && amountMatch) {
+      const newAmount = parseFloat(amountMatch[1]);
       return {
         intent: 'UPDATE_SUBSCRIPTION',
         data: {
@@ -185,17 +320,17 @@ export function extractChatIntent(userQuestion, subscriptions) {
           merchant_name: matchedSub.merchant_name,
           old_amount: matchedSub.amount,
           new_amount: newAmount,
-          amount: newAmount,
-          billing_frequency: matchedSub.billing_frequency,
-          category: matchedSub.category
+          billing_frequency: matchedSub.billing_frequency
         }
       };
     }
   }
 
-  // 3. DELETE INTENT
-  // Examples: "Cancel Netflix subscription", "Delete Spotify", "Remove Netflix subscription", "Delete Gym Membership"
+  // 3. DELETE / CANCEL INTENT
   const isDelete =
+    lower.startsWith('cancel ') ||
+    lower.startsWith('delete ') ||
+    lower.startsWith('remove ') ||
     lower.includes('delete ') ||
     lower.includes('cancel ') ||
     lower.includes('remove ') ||
@@ -220,9 +355,13 @@ export function extractChatIntent(userQuestion, subscriptions) {
 }
 
 /**
- * Intelligent Conversational Assistant query handler with Official Gemini API
+ * Intelligent Conversational Assistant query handler (Delegates to official OpenAI API)
  */
 export async function askAssistant(userQuestion, contextData = {}) {
+  return askOpenAIAssistant(userQuestion, contextData);
+}
+
+export async function askGeminiAssistant(userQuestion, contextData = {}) {
   const q = (userQuestion || '').trim();
   const lower = q.toLowerCase();
   const subs = contextData.subscriptions || [];
@@ -241,7 +380,6 @@ export async function askAssistant(userQuestion, contextData = {}) {
   // Check for direct Action Commands (ADD, UPDATE, DELETE)
   const detectedAction = extractChatIntent(q, subs);
 
-  // If user requested a direct database mutation, format the staging prompt immediately
   if (detectedAction) {
     if (detectedAction.intent === 'ADD_SUBSCRIPTION') {
       const { merchant_name, amount, billing_frequency } = detectedAction.data;
@@ -288,8 +426,6 @@ export async function askAssistant(userQuestion, contextData = {}) {
   const client = getGeminiClient();
   if (client) {
     try {
-      const model = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
-
       const systemInstruction = `You are SubGuard AI, a friendly, intelligent and conversational AI assistant.
 
 Talk naturally like Google Gemini.
@@ -324,12 +460,11 @@ ${subs
       }
 
 RULES:
-1. When asked general questions (e.g. "Hi", "Tell me a joke", "Tell me about Netflix", "Compare OTT plans"), chat naturally like Google Gemini. DO NOT recite the user's financial summary unless asked.
+1. When asked general questions (e.g. "Hi", "Tell me a joke", "Tell me about Netflix", "Compare OTT plans", "affordable OTTs"), chat naturally like Google Gemini. DO NOT recite the user's financial summary unless asked.
 2. When asked about monthly spending, expensive subscriptions, or savings, use the exact database numbers above.
 3. If the user asks to add or change a subscription, explain what you will do and ask them to confirm.`;
 
       // Build normalized multi-turn contents from conversation history
-      // Gemini API requirement: first turn must be 'user', and roles must alternate
       const rawTurns = [];
       if (Array.isArray(history)) {
         for (const msg of history.slice(-10)) {
@@ -348,7 +483,6 @@ RULES:
 
       for (const turn of rawTurns) {
         if (contents.length === 0 && turn.role === 'model') {
-          // Skip leading model turn if any
           continue;
         }
 
@@ -367,49 +501,39 @@ RULES:
         contents.push({ role: currentRole, parts: [{ text: currentText }] });
       }
 
-      // Robust cascade prioritizing verified active Google Gemini models
-      const candidateModels = [
-        process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
-        'gemini-3-flash-preview',
-        'gemini-3.5-flash',
-        'gemini-flash-latest'
-      ];
-      const uniqueModels = [...new Set(candidateModels.filter(Boolean))];
+      // Stable model selection: target configured model without looping multiple unsupported models
+      const primaryModel = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
+      const timeoutMs = getGeminiTimeoutMs();
+      let geminiRes;
 
-      for (const m of uniqueModels) {
-        try {
-          const apiCallPromise = client.models.generateContent({
-            model: m,
-            contents,
-            config: {
-              systemInstruction,
-              temperature: 0.7
-            }
-          });
-
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`Timeout: Model [${m}] call exceeded 8s`)), 8000)
-          );
-
-          const response = await Promise.race([apiCallPromise, timeoutPromise]);
-
-          if (response && response.text) {
-            return {
-              reply: response.text.trim(),
-              source: 'gemini',
-              model: m
-            };
-          }
-        } catch (modelErr) {
-          console.warn(`Model [${m}] attempt notice:`, modelErr.message);
+      try {
+        geminiRes = await invokeGeminiWithRetry(client, primaryModel, contents, systemInstruction, timeoutMs);
+      } catch (primaryErr) {
+        // If 404 model not found, try single stable fallback
+        const is404 = primaryErr.status === 404 || (primaryErr.message || '').includes('not found');
+        if (is404 && primaryModel !== 'gemini-3.5-flash') {
+          console.warn(`[Gemini] Primary model ${primaryModel} not found. Attempting single fallback gemini-3.5-flash.`);
+          geminiRes = await invokeGeminiWithRetry(client, 'gemini-3.5-flash', contents, systemInstruction, timeoutMs);
+        } else {
+          throw primaryErr;
         }
       }
+
+      if (geminiRes && geminiRes.reply) {
+        return geminiRes;
+      }
     } catch (geminiError) {
-      console.error('Gemini API Invocation Error:', geminiError.message);
+      console.error(`[Gemini] API invocation failed: ${geminiError.message}`);
+      // Return friendly error message on Gemini failure, never generic welcome banner
+      return {
+        reply: "Hey buddy! 😅 I'm having trouble connecting right now. Try again in a moment.",
+        source: 'gemini_error',
+        error: true
+      };
     }
   }
 
-  // 2. CONVERSATIONAL SMART FALLBACK (Used only when GEMINI_API_KEY is not configured or network drops)
+  // 2. CONVERSATIONAL SAFE FALLBACK (Used strictly when GEMINI_API_KEY is not configured)
   return generateSafeFallbackResponse(q, subs, total, anomalies);
 }
 
@@ -420,6 +544,22 @@ function generateSafeFallbackResponse(query, subs, total, anomalies) {
   const q = query.trim();
   const lower = q.toLowerCase();
   const sortedSubs = [...subs].sort((a, b) => parseFloat(b.amount || 0) - parseFloat(a.amount || 0));
+
+  // Affordable OTTs / Budget streaming
+  if (
+    lower.includes('affordable ott') ||
+    lower.includes('cheap ott') ||
+    lower.includes('budget ott') ||
+    lower.includes('affordable subscription') ||
+    lower.includes('cheapest ott') ||
+    lower.includes('budget streaming') ||
+    lower.includes('affordable streaming')
+  ) {
+    return {
+      reply: `Here are the most affordable OTT platforms in India for budget-friendly streaming:\n\n• **JioCinema Premium (₹29/month):** Incredible value for Hollywood movies, Peacock, and HBO original series.\n• **Zee5 All Access (₹99/month or ₹699/year):** Extensive library of regional Indian cinema (Hindi, Tamil, Telugu, Marathi).\n• **Disney+ Hotstar Super (₹899/year ≈ ₹75/month):** Full HD on 2 devices with Marvel, Star Wars, Pixar, and live cricket.\n• **Amazon Prime Video Lite (₹799/year ≈ ₹66/month):** HD streaming on TV or mobile with Prime Video access.\n• **Netflix Mobile (₹149/month):** 480p streaming on 1 mobile phone or tablet.\n\n💡 **Pro-Tip:** Bundling **JioCinema (₹29/mo)** + **Disney+ Hotstar (~₹75/mo)** gives you top Hollywood cinema, HBO, and live sports for just **₹104/month**!`,
+      source: 'fallback'
+    };
+  }
 
   // Capabilities / What can you do?
   if (lower.includes('what can you do') || lower.includes('what do you do') || lower.includes('help me with') || lower.includes('features')) {
@@ -527,9 +667,9 @@ function generateSafeFallbackResponse(query, subs, total, anomalies) {
     };
   }
 
-  // General conversational response
+  // Helpful conversational guidance (Never generic welcome banner)
   return {
-    reply: `I'm SubGuard AI, your conversational assistant! You can ask me to:\n• **Add subscriptions:** *"Add Netflix for ₹1000"* or *"Subscribe to Spotify ₹179"*\n• **Update prices:** *"Change Netflix price to 1200"*\n• **Cancel services:** *"Delete Gym Membership"*\n• **Audit expenses:** *"How much am I spending monthly?"* or *"Which costs the most?"*\n• **Casual questions:** Ask me to compare OTT plans, recommend bundles, or tell a joke!\n\n*(Tip: Add your GEMINI_API_KEY to backend/.env to activate live Google Gemini responses.)*`,
+    reply: `I'm here to help you manage your subscriptions, compare OTT plans, and audit spending! Ask me questions like *"Which OTT is best for movies?"*, *"Show affordable OTTs"*, or *"How much am I spending monthly?"*.\n\n*(To unlock live generative responses with Google Gemini, ensure GEMINI_API_KEY is configured in your backend environment).*`,
     source: 'fallback'
   };
 }
@@ -538,6 +678,10 @@ function generateSafeFallbackResponse(query, subs, total, anomalies) {
  * Health check endpoint for Gemini API connectivity
  */
 export async function checkGeminiHealth() {
+  return checkOpenAIHealth();
+}
+
+export async function checkOriginalGeminiHealth() {
   const isConfigured = isGeminiConfigured();
   const primaryModel = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
 
@@ -565,8 +709,7 @@ export async function checkGeminiHealth() {
   const candidateModels = [
     primaryModel,
     'gemini-3-flash-preview',
-    'gemini-3.5-flash',
-    'gemini-flash-latest'
+    'gemini-3.5-flash'
   ];
   const uniqueModels = [...new Set(candidateModels.filter(Boolean))];
 
@@ -586,7 +729,7 @@ export async function checkGeminiHealth() {
         sdk: '@google/genai'
       };
     } catch (err) {
-      console.warn(`Health check model [${m}] failed:`, err.message);
+      console.warn(`[Gemini Health] Model [${m}] check failed:`, err.message);
     }
   }
 

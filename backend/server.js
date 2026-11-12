@@ -1,3 +1,4 @@
+import dns from 'node:dns';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -5,6 +6,10 @@ import rateLimit from 'express-rate-limit';
 import cron from 'node-cron';
 import apiRoutes from './routes/api.js';
 import { supabase } from './config/supabase.js';
+
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 dotenv.config();
 
@@ -101,6 +106,11 @@ cron.schedule('0 8 * * *', async () => {
   }
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`SubGuard AI Backend running on port ${PORT}`);
 });
+
+// Configure server timeouts to support up to 60-second AI generation without premature drops
+server.timeout = 120000; // 120s server request timeout
+server.keepAliveTimeout = 65000; // 65s keep-alive timeout
+server.headersTimeout = 66000; // 66s headers timeout (must exceed keepAliveTimeout)

@@ -22,7 +22,7 @@ function resolveBaseUrl() {
 
 export const BASE_URL = resolveBaseUrl();
 
-export async function apiRequest(endpoint, method = 'GET', body = null) {
+export async function apiRequest(endpoint, method = 'GET', body = null, options = {}) {
   let token =
     sessionStorage.getItem('subguard_token') ||
     localStorage.getItem('subguard_token') ||
@@ -40,12 +40,24 @@ export async function apiRequest(endpoint, method = 'GET', body = null) {
 
   const primaryUrl = `${BASE_URL}${cleanPath}`;
 
+  // Extended timeout for AI and Insights endpoints (65s to allow 60s backend response)
+  const isAIExtended =
+    cleanPath.includes('/assistant') ||
+    cleanPath.includes('/ai') ||
+    cleanPath.includes('/insights');
+  const timeoutMs = options.timeoutMs || (isAIExtended ? 65000 : 30000);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
     const res = await fetch(primaryUrl, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : null
+      body: body ? JSON.stringify(body) : null,
+      signal: controller.signal
     });
+    clearTimeout(timer);
 
     if (res.status === 404) {
       // Automatic fallback retry: flip /api prefix between root and /api
@@ -53,17 +65,22 @@ export async function apiRequest(endpoint, method = 'GET', body = null) {
         ? `${BASE_URL.replace(/\/api$/, '')}${cleanPath}`
         : `${BASE_URL}/api${cleanPath}`;
 
+      const altController = new AbortController();
+      const altTimer = setTimeout(() => altController.abort(), timeoutMs);
+
       try {
         const altRes = await fetch(altUrl, {
           method,
           headers,
-          body: body ? JSON.stringify(body) : null
+          body: body ? JSON.stringify(body) : null,
+          signal: altController.signal
         });
+        clearTimeout(altTimer);
         if (altRes.ok) {
           return await altRes.json();
         }
       } catch (altErr) {
-        // Fall back to original error
+        clearTimeout(altTimer);
       }
     }
 
@@ -73,6 +90,12 @@ export async function apiRequest(endpoint, method = 'GET', body = null) {
     }
     return await res.json();
   } catch (error) {
+    clearTimeout(timer);
+    if (error.name === 'AbortError') {
+      const timeoutError = new Error('Request took longer than 60 seconds to finish. Please try again.');
+      console.warn(`API call [${endpoint}] timed out after ${timeoutMs}ms`);
+      throw timeoutError;
+    }
     console.warn(`API call [${endpoint}] notice:`, error.message);
     throw error;
   }

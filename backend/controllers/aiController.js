@@ -1,5 +1,5 @@
 import { supabase } from '../config/supabase.js';
-import { generateFinancialAnalysis, askAssistant, checkGeminiHealth } from '../services/geminiService.js';
+import { generateFinancialAnalysis, askAssistant, checkOpenAIHealth } from '../services/openaiService.js';
 import { getTransactionsForUser } from './transactionController.js';
 import { calculateFinancialSummary } from '../services/financialCalculator.js';
 import { detectAnomalies } from '../services/anomalyService.js';
@@ -22,7 +22,7 @@ import { invalidateUserInsightsCache } from '../services/insightsCache.js';
 
 export async function getHealth(req, res) {
   try {
-    const health = await checkGeminiHealth();
+    const health = await checkOpenAIHealth();
     res.json(health);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -181,13 +181,13 @@ export async function chatAssistant(req, res) {
       const convData = await getConversationWithMessages(userId, activeConvId);
       if (convData && Array.isArray(convData.messages)) {
         contextHistory = convData.messages.map((m) => ({
-          role: m.role === 'user' ? 'user' : 'model',
+          role: m.role === 'user' ? 'user' : 'assistant',
           content: m.content
         }));
       }
     }
 
-    // 5. Query Google Gemini API with authenticated user's grounded data
+    // 5. Query OpenAI API with authenticated user's grounded data
     const result = await askAssistant(message, {
       currency: 'INR',
       totalMonthly: Math.round(totalMonthly),
@@ -201,7 +201,7 @@ export async function chatAssistant(req, res) {
     await saveMessage(
       userId,
       activeConvId,
-      'model',
+      'assistant',
       result.reply,
       result.action ? { action: result.action } : {}
     );

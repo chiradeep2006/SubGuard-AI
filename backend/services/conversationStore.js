@@ -136,7 +136,7 @@ export async function saveMessage(userId, conversationId, role, content, metadat
     id: generateId('msg'),
     conversation_id: conversationId,
     user_id: userId,
-    role: role === 'user' ? 'user' : 'model',
+    role: role === 'user' ? 'user' : 'assistant',
     content: content.trim(),
     metadata,
     created_at: now

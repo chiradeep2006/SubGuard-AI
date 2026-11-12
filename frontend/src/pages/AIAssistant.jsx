@@ -228,7 +228,7 @@ export default function AIAssistant() {
 
     try {
       const historyPayload = messages.slice(-10).map((m) => ({
-        role: m.sender === 'user' ? 'user' : 'model',
+        role: m.sender === 'user' ? 'user' : 'assistant',
         text: m.text
       }));
 
@@ -324,14 +324,27 @@ export default function AIAssistant() {
         } else {
           fallbackText = `I couldn't find "${merchant}" in your active subscriptions.`;
         }
+      } else if (q.includes('hey buddy')) {
+        fallbackText = "Hey buddy! 😊 Great to connect with you! I'm SubGuard AI, your subscription co-pilot. Ask me about affordable OTT plans, streaming combos under ₹200, or tracking your monthly spending!";
       } else if (q === 'hi' || q === 'hello' || q.startsWith('hi ') || q.startsWith('hello ')) {
-        fallbackText = "Hey! How's it going? I'm SubGuard AI, powered by Google Gemini. What can I help you with today?";
+        fallbackText = "Hey! How's it going? I'm SubGuard AI, your subscription co-pilot. What can I help you with today?";
       } else if (q.includes('what can you do')) {
         fallbackText = "I can help you manage your subscriptions, compare OTT plans, track monthly spending, detect unusual charges, and much more. Feel free to ask me anything!";
       } else if (q.includes('joke')) {
         fallbackText = "Why did the credit card go to therapy?\n\nBecause it had too many unresolved issues and recurring commitments! 😄";
+      } else if (q.includes('save money') || q.includes('cut cost') || q.includes('reduce spending') || q.includes('saving tip')) {
+        fallbackText = "Here are 4 high-impact ways to save money on your subscriptions:\n\n1. **Audit Unused Subscriptions:** Review your SubGuard AI Waste Score. Cancelling just 1 unused tier can save ₹500–₹1,500/month.\n2. **Switch to Annual Billing:** Plans like Amazon Prime, Hotstar, and Zee5 offer 25% to 45% savings when paid yearly.\n3. **Build a Smart Budget Combo:** Pair **JioCinema (₹29/mo)** + **Disney+ Hotstar (~₹75/mo)** for just **₹104/month total**.\n4. **Rotate Services:** Pause services between show seasons!\n\nWant me to audit your current active subscriptions? Just ask: *'How much am I spending monthly?'*";
+      } else if (
+        (q.includes('compare') && (q.includes('netflix') || q.includes('prime'))) ||
+        (q.includes('netflix') && q.includes('prime'))
+      ) {
+        fallbackText = "Here is a quick comparison between **Netflix** and **Amazon Prime Video**:\n\n• **Netflix:** Starts at ₹149/mo (Mobile) up to ₹649/mo (Premium 4K). Unbeatable for global originals (Stranger Things, Squid Game) and international cinema.\n• **Amazon Prime Video:** ₹299/mo or ₹1,499/year (includes fast free shipping and Prime Music), or Prime Lite at ₹799/year (~₹66/mo). Best for Indian regional cinema and overall household value.\n\n💡 **Recommendation:** For international prestige series, choose **Netflix**. For maximum everyday shopping + movie value, choose **Amazon Prime Video**!";
       } else if (q.includes('which ott') || q.includes('best for movies')) {
         fallbackText = "When choosing the best OTT for movies, it depends on your taste:\n\n• **Netflix:** Premier choice for global cinema, Oscar-nominated originals, and international cinema.\n• **Amazon Prime Video:** Excellent collection of Indian regional cinema and Hollywood blockbusters.\n• **Disney+ Hotstar:** Unbeatable for Marvel, Star Wars, Pixar, and Disney classics.\n\nWhich genres do you enjoy most? I can recommend a tailored plan!";
+      } else if (q.includes('under 200') || q.includes('under ₹200') || q.includes('below 200') || q.includes('200 budget')) {
+        fallbackText = "Here are the top OTT platforms and smart combos available in India for **under ₹200/month**:\n\n1. **JioCinema Premium:** **₹29/month** (Hollywood HBO, Warner Bros, 4K streaming & live sports)\n2. **Zee5 All Access:** **₹99/month** (Regional movies & originals)\n3. **Netflix Mobile:** **₹149/month** (Full Netflix catalog on mobile/tablet)\n4. **Amazon Prime Video Lite:** **₹799/year (≈ ₹66/month)**\n5. **Disney+ Hotstar Super (Annual):** **₹899/year (≈ ₹75/month)**\n\n💡 **Best Combo Under ₹200:** Pair **JioCinema (₹29)** + **Netflix Mobile (₹149)** = **₹178/month total**!";
+      } else if (q.includes('affordable ott') || q.includes('cheap ott') || q.includes('budget ott') || q.includes('affordable streaming')) {
+        fallbackText = "Here are the most affordable OTT platforms in India for budget streaming:\n\n• **JioCinema Premium:** ₹29/month\n• **Amazon Prime Video Lite:** ₹799/year (~₹66/month)\n• **Disney+ Hotstar Super:** ₹899/year (~₹75/month)\n• **Zee5 All Access:** ₹99/month (or ₹699/year)\n• **Netflix Mobile:** ₹149/month\n\n💡 Combining JioCinema (₹29) and Disney+ Hotstar (~₹75/mo) provides comprehensive movies and live sports for just ₹104/month!";
       } else if (q.includes('monthly') || q.includes('spending') || q.includes('total') || q.includes('how much')) {
         const total = subscriptions.reduce((sum, s) => {
           let factor = 1;
@@ -342,7 +355,7 @@ export default function AIAssistant() {
         }, 0);
         fallbackText = `You are currently spending **₹${Math.round(total).toLocaleString('en-IN')}/month** across **${subscriptions.length} active subscriptions**.\n\n${subscriptions.map(s => `• **${s.merchant_name}**: ₹${s.amount}/${s.billing_frequency}`).join('\n')}\n\nProjected annual commitment: **₹${Math.round(total * 12).toLocaleString('en-IN')}/year**.`;
       } else {
-        fallbackText = `I'm SubGuard AI, your conversational assistant. You can ask me to add subscriptions (*'Add Netflix for ₹1000'*), check your monthly spending, compare OTT plans, or ask general questions!`;
+        fallbackText = "Hey buddy! 😅 I'm having trouble connecting right now. Try again in a moment.";
       }
 
       setMessages((prev) => [
@@ -756,7 +769,7 @@ export default function AIAssistant() {
                   <div className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '150ms' }} />
                   <div className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
-                <span className="text-xs text-gray-400 ml-1">Gemini is thinking...</span>
+                <span className="text-xs text-gray-400 ml-1">AI is thinking...</span>
               </div>
             </div>
           )}
@@ -790,7 +803,7 @@ export default function AIAssistant() {
             </button>
           </form>
           <p className="text-[10px] text-gray-500 text-center mt-2">
-            SubGuard AI is powered by Google Gemini and accesses only your verified subscription data.
+            SubGuard AI is powered by OpenAI and accesses only your verified subscription data.
           </p>
         </div>
       </div>

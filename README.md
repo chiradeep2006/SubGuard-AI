@@ -91,8 +91,9 @@ SubGuard AI is a full-stack application featuring a React 3D SPA frontend and a 
    - **Plan:** Free
 5. Click **Advanced** > **Add Environment Variable** and add:
    - `NODE_ENV` = `production`
-   - `GEMINI_MODEL` = `gemini-flash-latest`
-   - `GEMINI_API_KEY` = `<your-google-gemini-api-key>`
+   - `OPENAI_API_KEY` = `<your-openai-api-key>`
+   - `OPENAI_MODEL` = `gpt-4o-mini`
+   - `OPENAI_TIMEOUT_MS` = `30000`
    - `FRONTEND_URL` = `https://your-app.vercel.app` *(update once Vercel is deployed, or use `*` initially)*
    - `PAYPAL_API_BASE` = `https://api-m.sandbox.paypal.com`
 6. Click **Deploy Web Service**.

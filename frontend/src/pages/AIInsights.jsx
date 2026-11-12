@@ -178,9 +178,11 @@ export default function AIInsights() {
           <div className="flex items-center space-x-2 text-purple-400 text-xs font-bold uppercase tracking-wider">
             <Sparkles className="w-4 h-4" />
             <span>
-              {aiSource === 'gemini'
+              {aiSource === 'openai'
+                ? 'OpenAI GPT-4o-Mini Powered Intelligence'
+                : aiSource === 'gemini'
                 ? 'Google Gemini Flash-Powered Intelligence'
-                : t('insights_gemini_intel', 'Google Gemini-Powered Subscription Intelligence')}
+                : 'AI-Powered Subscription Intelligence'}
             </span>
             <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30">
               Deterministic Aggregation + AI Reasoning
